@@ -13,18 +13,26 @@
 // limitations under the License.
 
 import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { IonicPage, NavController, NavParams } from 'ionic-angular';
 import { Searchbar } from 'ionic-angular';
 import { CoreEventsProvider } from '@providers/events';
 import { CoreSitesProvider } from '@providers/sites';
+import { CoreAppProvider, CoreAppSchema} from '@providers/app'
 import { CoreDomUtilsProvider } from '@providers/utils/dom';
 import { CoreCoursesProvider, CoreCoursesMyCoursesUpdatedEventData } from '../../providers/courses';
 import { CoreCoursesHelperProvider } from '../../providers/helper';
 import { CoreCourseHelperProvider } from '@core/course/providers/helper';
 import { CoreCourseOptionsDelegate } from '@core/course/providers/options-delegate';
-
+import { HttpClient } from '@angular/common/http';
+import { CoreWSProvider } from '@providers/ws';
+import { TranslateService } from '@ngx-translate/core';
+import { SQLiteObject } from '@ionic-native/sqlite';
+import { Platform } from 'ionic-angular';
+import { SQLiteDB} from '@classes/sqlitedb';
 /**
  * Component that displays the list of courses the user is enrolled in.
  */
+
 @Component({
     selector: 'core-courses-my-courses',
     templateUrl: 'my-courses.html',
@@ -32,7 +40,181 @@ import { CoreCourseOptionsDelegate } from '@core/course/providers/options-delega
 export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     @ViewChild('searchbar') searchbar: Searchbar;
 
+    db: SQLiteObject;
+    protected appDB: SQLiteDB;
+    protected dbReady: Promise<any>; // Promise resolved when the app DB is initialized.
+    static USER_CATEGORY_COURSES_TABLE = 'user_category_courses'
+    protected appTablesSchemaCourses: CoreAppSchema = {
+        name: 'CoreCoursesMyCoursesComponent',
+        version: 2,
+        tables: [
+            {
+                name: CoreCoursesMyCoursesComponent.USER_CATEGORY_COURSES_TABLE,
+                columns: [
+                    {
+                        name: 'admOptions',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'cacherev',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'calendartype',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'category',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'completionnotify',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'courseImage',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'defaultgroupingid',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'enablecompletion',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'enddate',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'format',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'fullname',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'groupmode',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'groupmodeforce',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'id',
+                        type: 'INTEGER',
+                        primaryKey: true
+                    },
+                    {
+                        name: 'idnumber',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'lang',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'legacyfiles',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'marker',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'maxbytes',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'navOptions',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'newsitems',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'relativedatesmode',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'requested',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'role',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'rolename',
+                        type: 'INTEGER'
+                    },
+                    {
+                        name: 'shortname',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'showgrades',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'showreports',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'sortorder',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'startdate',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'summary',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'summaryformat',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'theme',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'timecreated',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'timemodified',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'visible',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'visibleold',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'studentid',
+                        type: 'TEXT'
+                    },
+                    {
+                        name: 'siteid',
+                        type: 'TEXT'
+                    },
+                ]
+            }
+        ]
+    };
+
     courses: any[];
+    userCategoryCourses:any[];
     filteredCourses: any[];
     searchEnabled: boolean;
     filter = '';
@@ -40,17 +222,25 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     coursesLoaded = false;
     prefetchCoursesData: any = {};
     downloadAllCoursesEnabled: boolean;
-
     protected prefetchIconInitialized = false;
     protected myCoursesObserver;
     protected siteUpdatedObserver;
     protected isDestroyed = false;
     protected courseIds = '';
+    userId: number;
+    userCategoryId = 0;
 
-    constructor(private coursesProvider: CoreCoursesProvider,
-            private domUtils: CoreDomUtilsProvider, private eventsProvider: CoreEventsProvider,
+    constructor(private platform: Platform,private navCtrl: NavController, navParams: NavParams,private coursesProvider: CoreCoursesProvider,
+            private domUtils: CoreDomUtilsProvider, private eventsProvider: CoreEventsProvider,private appProvider: CoreAppProvider,
             private sitesProvider: CoreSitesProvider, private courseHelper: CoreCourseHelperProvider,
-            private courseOptionsDelegate: CoreCourseOptionsDelegate, private coursesHelper: CoreCoursesHelperProvider) { }
+            private courseOptionsDelegate: CoreCourseOptionsDelegate, private coursesHelper: CoreCoursesHelperProvider,
+            public httpClient: HttpClient,protected wsProvider: CoreWSProvider,protected translate: TranslateService) { 
+                this.userCategoryId = navParams.get('cateId') || 0;
+                this.appDB = appProvider.getDB();
+                this.dbReady = appProvider.createTablesFromSchema(this.appTablesSchemaCourses).catch(() => {
+                    // Ignore errors.
+                });
+            }
 
     /**
      * Component being initialized.
@@ -59,16 +249,20 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
         this.searchEnabled = !this.coursesProvider.isSearchCoursesDisabledInSite();
         this.downloadAllCoursesEnabled = !this.coursesProvider.isDownloadCoursesDisabledInSite();
 
-        this.fetchCourses().finally(() => {
+        if (!this.appProvider.isOnline()) {
             this.coursesLoaded = true;
-        });
-
+            this.syncAllcourses();
+        } else {
+            this.fetchUserCategoryCourses().finally(() => {
+                this.coursesLoaded = true;
+            });
+        }       
         // Update list if user enrols in a course.
         this.myCoursesObserver = this.eventsProvider.on(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED,
                 (data: CoreCoursesMyCoursesUpdatedEventData) => {
 
             if (data.action == CoreCoursesProvider.ACTION_ENROL) {
-                this.fetchCourses();
+                this.fetchUserCategoryCourses();
             }
         }, this.sitesProvider.getCurrentSiteId());
 
@@ -99,7 +293,6 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
             });
 
             this.courseIds = courseIds.join(',');
-
             promises.push(this.coursesHelper.loadCoursesExtraInfo(courses));
 
             if (this.coursesProvider.canGetAdminAndNavOptions()) {
@@ -115,13 +308,57 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
                 this.courses = courses;
                 this.filteredCourses = this.courses;
                 this.filter = '';
-
                 this.initPrefetchCoursesIcon();
             });
         }).catch((error) => {
             this.domUtils.showErrorModalDefault(error, 'core.courses.errorloadcourses', true);
         });
     }
+
+    fetchUserCategoryCourses(): Promise<any>{
+        let siteInfo = this.sitesProvider.getCurrentSite()
+        this.userId = this.sitesProvider.getCurrentSiteUserId();
+
+        const params = {
+            wstoken: siteInfo.token,
+            wsfunction:"local_sms_get_subcategorywise_courses",
+            moodlewsrestformat:"json",
+            userid:this.userId,
+            catid:this.userCategoryId
+        },
+        userCategoryCoursesUrl = siteInfo.siteUrl +'/webservice/rest/server.php?',
+        promise = this.httpClient.post(userCategoryCoursesUrl, params).timeout(this.wsProvider.getRequestTimeout()).toPromise();
+
+        return promise.then((data: any): any => {
+            if (typeof data == 'undefined') {
+                return Promise.reject(this.translate.instant('core.cannotconnecttrouble'));
+            } else {
+                let courses = data.courses;
+                const promises = [],courseIds = courses.map((course) => {
+                    return course.id;
+                });
+                this.courseIds = courseIds.join(',');
+                if (this.coursesProvider.canGetAdminAndNavOptions()) {
+                    promises.push(this.coursesProvider.getCoursesAdminAndNavOptions(courseIds).then((options) => {
+                        courses.forEach((course) => {
+                            course.navOptions = options.navOptions[course.id];
+                            course.admOptions = options.admOptions[course.id];
+                        });
+                    }));
+                }
+                this.courses = courses;
+                this.filteredCourses = this.courses;
+                this.insertCoursesListToDB(this.courses);
+                this.filter = '';
+                this.initPrefetchCoursesIcon();
+                return courses;
+            }
+        }).catch((error) => { 
+            this.domUtils.showErrorModalDefault(error, 'core.courses.errorloadcourses', true);
+            return Promise.reject(this.translate.instant('core.cannotconnecttrouble'));
+        });
+
+    } 
 
     /**
      * Refresh the courses.
@@ -140,7 +377,7 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
         Promise.all(promises).finally(() => {
 
             this.prefetchIconInitialized = false;
-            this.fetchCourses().finally(() => {
+            this.fetchUserCategoryCourses().finally(() => {
                 refresher.complete();
             });
         });
@@ -236,6 +473,73 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
         });
     }
 
+
+    async insertCoursesListToDB(courseArray): Promise<void> {
+        await this.dbReady;
+        let siteInfo = this.sitesProvider.getCurrentSite()
+        let userId = this.sitesProvider.getCurrentSiteUserId();
+        let siteId = siteInfo.id;
+        for(let key = 0; key < courseArray.length; key++){
+            const entrycourses = {
+                    admOptions: courseArray[key].admOptions,
+                    cacherev: courseArray[key].cacherev,
+                    calendartype: courseArray[key].calendartype,
+                    category: courseArray[key].category,
+                    completionnotify: courseArray[key].completionnotify,
+                    courseImage: courseArray[key].courseImage,
+                    defaultgroupingid: courseArray[key].defaultgroupingid,
+                    enablecompletion: courseArray[key].enablecompletion,
+                    enddate: courseArray[key].enddate,
+                    format: courseArray[key].format,
+                    fullname: courseArray[key].fullname,
+                    groupmode: courseArray[key].groupmode,
+                    groupmodeforce: courseArray[key].groupmodeforce,
+                    id: courseArray[key].id,
+                    idnumber: courseArray[key].idnumber,
+                    lang: courseArray[key].lang,
+                    legacyfiles: courseArray[key].legacyfiles,
+                    marker: courseArray[key].marker,
+                    maxbytes: courseArray[key].maxbytes,
+                    navOptionsnewsitems: courseArray[key].navOptionsnewsitems,
+                    relativedatesmode: courseArray[key].relativedatesmode,
+                    requested: courseArray[key].requested,
+                    role: courseArray[key].role,
+                    rolename: courseArray[key].rolename,
+                    shortname: courseArray[key].shortname,
+                    showgrades: courseArray[key].showgrades,
+                    showreports: courseArray[key].showreports,
+                    sortorder: courseArray[key].sortorder,
+                    startdate: courseArray[key].startdate,
+                    summary: courseArray[key].summary,
+                    summaryformat: courseArray[key].summaryformat,
+                    theme: courseArray[key].theme,
+                    timecreated: courseArray[key].timecreated,
+                    timemodified: courseArray[key].timemodified,
+                    visible: courseArray[key].visible,
+                    visibleold: courseArray[key].visibleold,
+                    studentid: userId,
+                    siteid: siteId
+            };
+            await this.appDB.insertRecordCategory(CoreCoursesMyCoursesComponent.USER_CATEGORY_COURSES_TABLE, (entrycourses));
+        }
+    }
+
+    protected syncAllcourses(): Promise<any> {
+        let userId = this.sitesProvider.getCurrentSiteUserId();
+        return this.getAllcurses(userId,this.userCategoryId).then((courses) => {
+            this.courses = courses;
+            this.filteredCourses = this.courses;
+            this.filter = '';
+            this.initPrefetchCoursesIcon();
+        });
+    }   
+
+    getAllcurses(userId?:number,catid?:number): Promise<any[]> {
+        catid.toString()
+        let selectQuery = 'category = ' + catid.toString();
+        return this.appDB.getAllCateoryDB(CoreCoursesMyCoursesComponent.USER_CATEGORY_COURSES_TABLE,selectQuery);
+    }
+    
     /**
      * Page destroyed.
      */
